@@ -1,3 +1,0 @@
-../Core/Src/adc.c:12:10:ADC_GetU24Filtered	1
-../Core/Src/adc.c:14:17:SmaProcess	3
-../Core/Src/adc.c:33:6:HAL_ADC_ConvCpltCallback	2
