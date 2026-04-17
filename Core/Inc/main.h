@@ -65,18 +65,18 @@ uint16_t ADC_GetU24Filtered(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define Relay2_CSC_Pin GPIO_PIN_13
-#define Relay2_CSC_GPIO_Port GPIOC
-#define Relay2_COD_Pin GPIO_PIN_15
+#define Relay2_COD_Pin GPIO_PIN_2
 #define Relay2_COD_GPIO_Port GPIOC
-#define Relay1_CSC_Pin GPIO_PIN_0
-#define Relay1_CSC_GPIO_Port GPIOC
-#define Relay1_COD_Pin GPIO_PIN_3
-#define Relay1_COD_GPIO_Port GPIOC
-#define Relay1_Pin GPIO_PIN_0
-#define Relay1_GPIO_Port GPIOA
-#define Relay2_Pin GPIO_PIN_1
+#define Relay2_CSC_Pin GPIO_PIN_1
+#define Relay2_CSC_GPIO_Port GPIOA
+#define Relay2_Pin GPIO_PIN_2
 #define Relay2_GPIO_Port GPIOA
+#define Relay1_CSC_Pin GPIO_PIN_3
+#define Relay1_CSC_GPIO_Port GPIOA
+#define Relay1_COD_Pin GPIO_PIN_4
+#define Relay1_COD_GPIO_Port GPIOA
+#define Relay1_Pin GPIO_PIN_6
+#define Relay1_GPIO_Port GPIOA
 #define LED_Pin GPIO_PIN_10
 #define LED_GPIO_Port GPIOB
 

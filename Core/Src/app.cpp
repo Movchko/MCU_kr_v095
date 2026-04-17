@@ -41,11 +41,7 @@ volatile uint8_t CAN2_Active = 0;
 static uint32_t can1_last_rx_tick = 0;
 static uint32_t can2_last_rx_tick = 0;
 
-void RcvSetSystemTime(uint8_t *data) { (void)data; }
-void RcvStatusFire() {}
-void RcvReplyStatusFire() {}
-extern "C" void RcvStartExtinguishment(uint8_t *MsgData) { (void)MsgData; }
-void RcvStopExtinguishment() {}
+
 
 static void Relay1_SetOutput(uint8_t state)
 {
