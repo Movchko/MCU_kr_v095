@@ -128,10 +128,14 @@ void DefaultConfig(void)
     memset(r1, 0, sizeof(DeviceRelayConfig));
     memset(r2, 0, sizeof(DeviceRelayConfig));
     r1->initial_state = 0u;
+    r1->persist_state_enabled = 0u;
     r1->feedback_inverted = 0u;
+    r1->switch_delay_s = 0u;
     r1->settle_time_ms = 100u;
     r2->initial_state = 0u;
+    r2->persist_state_enabled = 0u;
     r2->feedback_inverted = 0u;
+    r2->switch_delay_s = 0u;
     r2->settle_time_ms = 100u;
 }
 
