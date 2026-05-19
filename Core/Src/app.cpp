@@ -25,24 +25,6 @@ static MKUCfg g_saved_cfg;
 static VDeviceRelay g_relay1(1);
 static VDeviceRelay g_relay2(2);
 
-#define APP_CAN_RX_RING_SIZE 256
-typedef struct {
-    uint32_t id;
-    uint8_t data[8];
-    uint8_t bus;
-} AppCanRxEntry;
-
-static AppCanRxEntry can_rx_ring[APP_CAN_RX_RING_SIZE];
-static volatile uint8_t can_rx_head = 0;
-static volatile uint8_t can_rx_tail = 0;
-
-volatile uint8_t CAN1_Active = 0;
-volatile uint8_t CAN2_Active = 0;
-static uint32_t can1_last_rx_tick = 0;
-static uint32_t can2_last_rx_tick = 0;
-
-
-
 static void Relay1_SetOutput(uint8_t state)
 {
     HAL_GPIO_WritePin(Relay1_GPIO_Port, Relay1_Pin, state ? GPIO_PIN_SET : GPIO_PIN_RESET);
@@ -260,42 +242,6 @@ void ListenerCommandCB(uint32_t MsgID, uint8_t *MsgData)
     (void)MsgData;
 }
 
-void App_CanOnRx(uint8_t bus)
-{
-    uint32_t now = HAL_GetTick();
-    if (bus == 1u) {
-        CAN1_Active = 1u;
-        can1_last_rx_tick = now;
-    } else if (bus == 2u) {
-        CAN2_Active = 1u;
-        can2_last_rx_tick = now;
-    }
-}
-
-void App_CanRxPush(uint32_t id, const uint8_t *data, uint8_t bus)
-{
-    uint8_t next = (uint8_t)(can_rx_head + 1u);
-    if (next >= APP_CAN_RX_RING_SIZE) next = 0u;
-    if (next == can_rx_tail) {
-        can_rx_tail++;
-        if (can_rx_tail >= APP_CAN_RX_RING_SIZE) can_rx_tail = 0u;
-    }
-    can_rx_ring[can_rx_head].id = id;
-    can_rx_ring[can_rx_head].bus = bus;
-    memcpy(can_rx_ring[can_rx_head].data, data, 8u);
-    can_rx_head = next;
-}
-
-void App_CanProcess(void)
-{
-    while (can_rx_head != can_rx_tail) {
-        AppCanRxEntry *e = &can_rx_ring[can_rx_tail];
-        can_rx_tail++;
-        if (can_rx_tail >= APP_CAN_RX_RING_SIZE) can_rx_tail = 0u;
-        ProtocolParse(e->id, e->data, e->bus);
-    }
-}
-
 void App_Init(void)
 {
     extern Device BoardDevicesList[];
@@ -347,19 +293,6 @@ void App_Init(void)
     isListener = true;
 }
 
-void App_UpdateCanActivity(void)
-{
-    uint32_t now = HAL_GetTick();
-    if (can1_last_rx_tick != 0u && (now - can1_last_rx_tick) >= 3000u) {
-        CAN1_Active = 0u;
-        can1_last_rx_tick = 0u;
-    }
-    if (can2_last_rx_tick != 0u && (now - can2_last_rx_tick) >= 3000u) {
-        CAN2_Active = 0u;
-        can2_last_rx_tick = 0u;
-    }
-}
-
 void App_Timer1ms(void)
 {
     static uint16_t led_cnt = 0u;
@@ -390,7 +323,7 @@ void App_Timer1ms(void)
         uint32_t code_01v = u24_mv / 100u;
         if (code_01v > 255u) code_01v = 255u;
         status_data[5] = (uint8_t)code_01v;
-        status_data[6] = 0u;
+        status_data[6] = App_GetCanStateMask();
         SendMessage(0, 0, status_data, SEND_NOW, BUS_CAN12);
     }
 
