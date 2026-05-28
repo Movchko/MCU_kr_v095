@@ -325,6 +325,9 @@ void App_Timer1ms(void)
         status_data[5] = (uint8_t)code_1v;
         status_data[6] = App_GetCanStateMask();
         SendMessage(0, 0, status_data, SEND_NOW, BUS_CAN12);
+
+        uint8_t pos_data[7] = {0u, 0u, 0u, 0u, 0u, 0u, 0u};
+        SendMessage(0, ServiceCmd_PositionDevice, pos_data, SEND_NOW, BUS_CAN12);
     }
 
     if (led_cnt < 1000u) {
@@ -337,7 +340,7 @@ void App_Timer1ms(void)
     App_UpdateCanActivity();
     g_relay1.Timer1ms();
     g_relay2.Timer1ms();
-    App_CanProcess();
+
     BackendProcess();
 }
 
