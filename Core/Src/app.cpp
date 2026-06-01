@@ -226,10 +226,18 @@ uint32_t GetID(void)
     return (id0 ^ id1 ^ id2);
 }
 
+void MCU_KRCommandCB(uint8_t Command, uint8_t *Parameters)
+{
+    if (Command == 20) {
+        g_cfg.UId.devId.zone = Parameters[0];
+        SaveConfig();
+    }
+}
+
 void CommandCB(uint8_t Dev, uint8_t Command, uint8_t *Parameters)
 {
     switch (Dev) {
-    case 0: break;
+    case 0: MCU_KRCommandCB(Command, Parameters); break;
     case 1: g_relay1.CommandCB(Command, Parameters); break;
     case 2: g_relay2.CommandCB(Command, Parameters); break;
     default: break;
