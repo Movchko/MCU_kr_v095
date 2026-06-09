@@ -58,6 +58,7 @@
 extern DMA_NodeTypeDef Node_GPDMA1_Channel0;
 extern DMA_QListTypeDef List_GPDMA1_Channel0;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel0;
+extern DTS_HandleTypeDef hdts;
 extern FDCAN_HandleTypeDef hfdcan1;
 extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
@@ -242,6 +243,20 @@ void FDCAN2_IT0_IRQHandler(void)
   /* USER CODE BEGIN FDCAN2_IT0_IRQn 1 */
 
   /* USER CODE END FDCAN2_IT0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DTS global interrupt.
+  */
+void DTS_IRQHandler(void)
+{
+  /* USER CODE BEGIN DTS_IRQn 0 */
+
+  /* USER CODE END DTS_IRQn 0 */
+  HAL_DTS_IRQHandler(&hdts);
+  /* USER CODE BEGIN DTS_IRQn 1 */
+
+  /* USER CODE END DTS_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
