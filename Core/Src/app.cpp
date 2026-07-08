@@ -26,6 +26,8 @@ static const uint32_t PPKU_ONLINE_TIMEOUT_MS = 5000u;
 /* 1: Relay1, 2: Relay2 */
 static VDeviceRelay g_relay1(1);
 static VDeviceRelay g_relay2(2);
+static uint8_t g_relay1_fire_latched = 0u;
+static uint8_t g_relay2_fire_latched = 0u;
 
 static void Relay1_SetOutput(uint8_t state)
 {
@@ -75,16 +77,57 @@ static void Relay_ApplyTarget(VDeviceRelay &relay, uint8_t state)
     relay.CommandCB(10u, p);
 }
 
-static void Relay_HandleAutonomousFire(const DeviceRelayConfig *cfg, VDeviceRelay &relay, uint8_t fire_active)
+static uint8_t Relay_GetFireTargetState(const DeviceRelayConfig *cfg)
+{
+    if (cfg == nullptr || cfg->mode != 1u) {
+        return 0xFFu;
+    }
+    return (cfg->initial_state != 0u) ? 0u : 1u;
+}
+
+static uint8_t Relay_ShouldApplyCommand(uint8_t cmd, uint8_t *params,
+                                        const DeviceRelayConfig *cfg,
+                                        uint8_t *fire_latched)
+{
+    if (cmd != 10u || cfg == nullptr || params == nullptr) {
+        return 1u;
+    }
+
+    const uint8_t fire_target = Relay_GetFireTargetState(cfg);
+    if (fire_target == 0xFFu) {
+        return 1u;
+    }
+
+    uint8_t new_state = 0u;
+    if (params[0] == 0u || params[0] == 1u) {
+        new_state = params[0];
+    } else {
+        return 1u;
+    }
+
+    if (new_state != fire_target) {
+        return 1u;
+    }
+
+    if (*fire_latched != 0u) {
+        return 0u;
+    }
+
+    *fire_latched = 1u;
+    return 1u;
+}
+
+static void Relay_HandleAutonomousFire(const DeviceRelayConfig *cfg, VDeviceRelay &relay,
+                                     uint8_t *fire_latched)
 {
     if (cfg == nullptr || cfg->mode != 1u) {
         return;
     }
-    if (fire_active != 0u) {
-        Relay_ApplyTarget(relay, (cfg->initial_state != 0u) ? 0u : 1u);
-    } else {
-        Relay_ApplyTarget(relay, (cfg->initial_state != 0u) ? 1u : 0u);
+    if (*fire_latched != 0u) {
+        return;
     }
+    Relay_ApplyTarget(relay, Relay_GetFireTargetState(cfg));
+    *fire_latched = 1u;
 }
 
 void SetHAdr(uint8_t h_adr)
@@ -170,8 +213,18 @@ void CommandCB(uint8_t Dev, uint8_t Command, uint8_t *Parameters)
 {
     switch (Dev) {
     case 0: MCU_KRCommandCB(Command, Parameters); break;
-    case 1: g_relay1.CommandCB(Command, Parameters); break;
-    case 2: g_relay2.CommandCB(Command, Parameters); break;
+    case 1: {
+        DeviceRelayConfig *cfg = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
+        if (Relay_ShouldApplyCommand(Command, Parameters, cfg, &g_relay1_fire_latched) != 0u) {
+            g_relay1.CommandCB(Command, Parameters);
+        }
+    } break;
+    case 2: {
+        DeviceRelayConfig *cfg = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
+        if (Relay_ShouldApplyCommand(Command, Parameters, cfg, &g_relay2_fire_latched) != 0u) {
+            g_relay2.CommandCB(Command, Parameters);
+        }
+    } break;
     default: break;
     }
 }
@@ -208,12 +261,10 @@ void ListenerCommandCB(uint32_t MsgID, uint8_t *MsgData)
     DeviceRelayConfig *r1 = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
     DeviceRelayConfig *r2 = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
     if (cmd == ServiceCmd_Fire_SetStatusFire) {
-        Relay_HandleAutonomousFire(r1, g_relay1, 1u);
-        Relay_HandleAutonomousFire(r2, g_relay2, 1u);
-    } else if (cmd == ServiceCmd_Fire_StopExtinguishment) {
-        Relay_HandleAutonomousFire(r1, g_relay1, 0u);
-        Relay_HandleAutonomousFire(r2, g_relay2, 0u);
+        Relay_HandleAutonomousFire(r1, g_relay1, &g_relay1_fire_latched);
+        Relay_HandleAutonomousFire(r2, g_relay2, &g_relay2_fire_latched);
     }
+    /* StopExtinguishment / Pause: реле не возвращаем. */
 }
 
 void App_Init(void)
