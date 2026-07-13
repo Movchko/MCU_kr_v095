@@ -29,6 +29,60 @@ static VDeviceRelay g_relay2(2);
 static uint8_t g_relay1_fire_latched = 0u;
 static uint8_t g_relay2_fire_latched = 0u;
 
+static uint32_t ResetDelayms = 3000;
+static uint8_t isReset = 0;
+
+/* Слот 0/1: реле. VDtype[slot]==0 — канал отключён. */
+static uint8_t App_IsSlotEnabled(uint8_t slot)
+{
+	if (slot >= NUM_DEV_IN_MCU) {
+		return 0u;
+	}
+	return (g_cfg.VDtype[slot] != 0u) ? 1u : 0u;
+}
+
+static uint8_t App_IsRelaySlotEnabled(uint8_t slot)
+{
+	if (slot >= 2u) {
+		return 0u;
+	}
+	return (g_cfg.VDtype[slot] == DEVICE_RELAY_TYPE) ? 1u : 0u;
+}
+
+static void App_RebuildBoardDevicesList(void)
+{
+	extern Device BoardDevicesList[];
+	extern uint8_t nDevs;
+
+	BoardDevicesList[0].zone   = g_cfg.UId.devId.zone;
+	BoardDevicesList[0].h_adr  = g_cfg.UId.devId.h_adr;
+	BoardDevicesList[0].l_adr  = g_cfg.UId.devId.l_adr;
+	BoardDevicesList[0].d_type = DEVICE_MCU_KR;
+
+	BoardDevicesList[1].zone   = g_cfg.UId.devId.zone;
+	BoardDevicesList[1].h_adr  = g_cfg.UId.devId.h_adr;
+	BoardDevicesList[1].l_adr  = 1;
+	BoardDevicesList[1].d_type = App_IsRelaySlotEnabled(0) ? DEVICE_RELAY_TYPE : 0u;
+
+	BoardDevicesList[2].zone   = g_cfg.UId.devId.zone;
+	BoardDevicesList[2].h_adr  = g_cfg.UId.devId.h_adr;
+	BoardDevicesList[2].l_adr  = 2;
+	BoardDevicesList[2].d_type = App_IsRelaySlotEnabled(1) ? DEVICE_RELAY_TYPE : 0u;
+
+	nDevs = 3;
+}
+
+static uint8_t App_IsBoardDevActive(uint8_t dnum)
+{
+	if (dnum == 1u) {
+		return App_IsRelaySlotEnabled(0);
+	}
+	if (dnum == 2u) {
+		return App_IsRelaySlotEnabled(1);
+	}
+	return 1u;
+}
+
 static void Relay1_SetOutput(uint8_t state)
 {
     HAL_GPIO_WritePin(Relay1_GPIO_Port, Relay1_Pin, state ? GPIO_PIN_SET : GPIO_PIN_RESET);
@@ -59,6 +113,9 @@ static uint8_t Relay2_GetFeedback(void)
 
 static void VDeviceSetStatus(uint8_t DNum, uint8_t Code, const uint8_t *Parameters)
 {
+    if (!App_IsBoardDevActive(DNum)) {
+        return;
+    }
     uint8_t data[7] = {0};
     for (uint8_t i = 0; i < 7; i++) {
         data[i] = Parameters[i];
@@ -133,11 +190,7 @@ static void Relay_HandleAutonomousFire(const DeviceRelayConfig *cfg, VDeviceRela
 void SetHAdr(uint8_t h_adr)
 {
     g_cfg.UId.devId.h_adr = h_adr;
-    extern uint8_t nDevs;
-    extern Device BoardDevicesList[];
-    for (uint8_t i = 0; i < nDevs; i++) {
-        BoardDevicesList[i].h_adr = g_cfg.UId.devId.h_adr;
-    }
+    App_RebuildBoardDevicesList();
     SaveConfig();
 }
 
@@ -191,7 +244,10 @@ void DefaultConfig(void)
     r2->settle_time_ms = 100u;
 }
 
-void ResetMCU(void) { NVIC_SystemReset(); }
+void ResetMCU(void)
+{
+    isReset = 1;
+}
 
 uint32_t GetID(void)
 {
@@ -214,12 +270,18 @@ void CommandCB(uint8_t Dev, uint8_t Command, uint8_t *Parameters)
     switch (Dev) {
     case 0: MCU_KRCommandCB(Command, Parameters); break;
     case 1: {
+        if (!App_IsRelaySlotEnabled(0)) {
+            break;
+        }
         DeviceRelayConfig *cfg = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
         if (Relay_ShouldApplyCommand(Command, Parameters, cfg, &g_relay1_fire_latched) != 0u) {
             g_relay1.CommandCB(Command, Parameters);
         }
     } break;
     case 2: {
+        if (!App_IsRelaySlotEnabled(1)) {
+            break;
+        }
         DeviceRelayConfig *cfg = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
         if (Relay_ShouldApplyCommand(Command, Parameters, cfg, &g_relay2_fire_latched) != 0u) {
             g_relay2.CommandCB(Command, Parameters);
@@ -261,17 +323,18 @@ void ListenerCommandCB(uint32_t MsgID, uint8_t *MsgData)
     DeviceRelayConfig *r1 = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
     DeviceRelayConfig *r2 = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
     if (cmd == ServiceCmd_Fire_SetStatusFire) {
-        Relay_HandleAutonomousFire(r1, g_relay1, &g_relay1_fire_latched);
-        Relay_HandleAutonomousFire(r2, g_relay2, &g_relay2_fire_latched);
+        if (App_IsRelaySlotEnabled(0)) {
+            Relay_HandleAutonomousFire(r1, g_relay1, &g_relay1_fire_latched);
+        }
+        if (App_IsRelaySlotEnabled(1)) {
+            Relay_HandleAutonomousFire(r2, g_relay2, &g_relay2_fire_latched);
+        }
     }
     /* StopExtinguishment / Pause: реле не возвращаем. */
 }
 
 void App_Init(void)
 {
-    extern Device BoardDevicesList[];
-    extern uint8_t nDevs;
-
     if (!FlashReadConfig(&g_cfg)) {
         DefaultConfig();
         SaveConfig();
@@ -294,26 +357,7 @@ void App_Init(void)
     g_relay2.Relay_GetFeedback = Relay2_GetFeedback;
     g_relay2.Init();
 
-    nDevs = 1;
-    BoardDevicesList[0].zone  = g_cfg.UId.devId.zone;
-    BoardDevicesList[0].h_adr = g_cfg.UId.devId.h_adr;
-    BoardDevicesList[0].l_adr = g_cfg.UId.devId.l_adr;
-    BoardDevicesList[0].d_type = DEVICE_MCU_KR;
-
-    if (nDevs < MAX_DEVS) {
-        BoardDevicesList[nDevs].zone = g_cfg.UId.devId.zone;
-        BoardDevicesList[nDevs].h_adr = g_cfg.UId.devId.h_adr;
-        BoardDevicesList[nDevs].l_adr = 1;
-        BoardDevicesList[nDevs].d_type = g_relay1.GetDT();
-        nDevs++;
-    }
-    if (nDevs < MAX_DEVS) {
-        BoardDevicesList[nDevs].zone = g_cfg.UId.devId.zone;
-        BoardDevicesList[nDevs].h_adr = g_cfg.UId.devId.h_adr;
-        BoardDevicesList[nDevs].l_adr = 2;
-        BoardDevicesList[nDevs].d_type = g_relay2.GetDT();
-        nDevs++;
-    }
+    App_RebuildBoardDevicesList();
 
     extern bool isListener;
     isListener = true;
@@ -324,10 +368,6 @@ void App_Timer1ms(void)
     static uint16_t led_cnt = 0u;
     static uint16_t status_cnt = 0u;
     uint32_t now = HAL_GetTick();
-
-    extern Device BoardDevicesList[];
-    BoardDevicesList[1].d_type = g_relay1.GetDT();
-    BoardDevicesList[2].d_type = g_relay2.GetDT();
 
     if (status_cnt < 1000u) {
         status_cnt++;
@@ -375,10 +415,28 @@ void App_Timer1ms(void)
     }
 
     App_UpdateCanActivity();
-    g_relay1.Timer1ms();
-    g_relay2.Timer1ms();
+
+    // задержка софт-рестарта. нужно чтобы усройство успело широковещательную переслать команду дальше
+    if (isReset) {
+        ResetDelayms--;
+        if (ResetDelayms == 0u) {
+            NVIC_SystemReset();
+        }
+    }
+
+    if (App_IsRelaySlotEnabled(0)) {
+        g_relay1.Timer1ms();
+    }
+    if (App_IsRelaySlotEnabled(1)) {
+        g_relay2.Timer1ms();
+    }
 
     BackendProcess();
+}
+
+void AplyConfig(void)
+{
+    App_RebuildBoardDevicesList();
 }
 
 } /* extern "C" */
