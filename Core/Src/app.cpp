@@ -134,9 +134,14 @@ static void Relay_ApplyTarget(VDeviceRelay &relay, uint8_t state)
     relay.CommandCB(10u, p);
 }
 
-static uint8_t Relay_GetFireTargetState(const DeviceRelayConfig *cfg)
+static uint8_t Relay_IsLatchMode(uint8_t mode)
 {
-    if (cfg == nullptr || cfg->mode != 1u) {
+    return (mode == 1u || mode == 4u || mode == 5u || mode == 6u) ? 1u : 0u;
+}
+
+static uint8_t Relay_GetLatchTargetState(const DeviceRelayConfig *cfg)
+{
+    if (cfg == nullptr || Relay_IsLatchMode(cfg->mode) == 0u) {
         return 0xFFu;
     }
     return (cfg->initial_state != 0u) ? 0u : 1u;
@@ -150,8 +155,8 @@ static uint8_t Relay_ShouldApplyCommand(uint8_t cmd, uint8_t *params,
         return 1u;
     }
 
-    const uint8_t fire_target = Relay_GetFireTargetState(cfg);
-    if (fire_target == 0xFFu) {
+    const uint8_t latch_target = Relay_GetLatchTargetState(cfg);
+    if (latch_target == 0xFFu) {
         return 1u;
     }
 
@@ -162,7 +167,7 @@ static uint8_t Relay_ShouldApplyCommand(uint8_t cmd, uint8_t *params,
         return 1u;
     }
 
-    if (new_state != fire_target) {
+    if (new_state != latch_target) {
         return 1u;
     }
 
@@ -174,17 +179,50 @@ static uint8_t Relay_ShouldApplyCommand(uint8_t cmd, uint8_t *params,
     return 1u;
 }
 
-static void Relay_HandleAutonomousFire(const DeviceRelayConfig *cfg, VDeviceRelay &relay,
-                                     uint8_t *fire_latched)
+static void Relay_HandleAutonomousLatch(const DeviceRelayConfig *cfg, VDeviceRelay &relay,
+                                        uint8_t *fire_latched)
 {
-    if (cfg == nullptr || cfg->mode != 1u) {
+    if (cfg == nullptr || Relay_IsLatchMode(cfg->mode) == 0u) {
         return;
     }
     if (*fire_latched != 0u) {
         return;
     }
-    Relay_ApplyTarget(relay, Relay_GetFireTargetState(cfg));
+    Relay_ApplyTarget(relay, Relay_GetLatchTargetState(cfg));
     *fire_latched = 1u;
+}
+
+static void Relay_TryAutonomousFire(const DeviceRelayConfig *cfg, VDeviceRelay &relay,
+                                    uint8_t *fire_latched, uint8_t zone_match)
+{
+    if (cfg == nullptr) {
+        return;
+    }
+    if (cfg->mode == 1u) {
+        if (zone_match == 0u) {
+            return;
+        }
+        Relay_HandleAutonomousLatch(cfg, relay, fire_latched);
+    } else if (cfg->mode == 4u) {
+        /* Пожар в любой зоне — zone_match не требуется. */
+        Relay_HandleAutonomousLatch(cfg, relay, fire_latched);
+    }
+}
+
+static void Relay_TryAutonomousStart(const DeviceRelayConfig *cfg, VDeviceRelay &relay,
+                                     uint8_t *fire_latched, uint8_t zone_match)
+{
+    if (cfg == nullptr) {
+        return;
+    }
+    if (cfg->mode == 5u) {
+        if (zone_match == 0u) {
+            return;
+        }
+        Relay_HandleAutonomousLatch(cfg, relay, fire_latched);
+    } else if (cfg->mode == 6u) {
+        Relay_HandleAutonomousLatch(cfg, relay, fire_latched);
+    }
 }
 
 void SetHAdr(uint8_t h_adr)
@@ -316,21 +354,50 @@ void ListenerCommandCB(uint32_t MsgID, uint8_t *MsgData)
     const uint8_t cmd = MsgData[0];
     const uint8_t own_zone = (uint8_t)(g_cfg.UId.devId.zone & 0x7Fu);
     const uint8_t zone_match = (id.field.zone == own_zone || id.field.zone == 0u) ? 1u : 0u;
-    if (zone_match == 0u) {
-        return;
-    }
 
     DeviceRelayConfig *r1 = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
     DeviceRelayConfig *r2 = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
     if (cmd == ServiceCmd_Fire_SetStatusFire) {
         if (App_IsRelaySlotEnabled(0)) {
-            Relay_HandleAutonomousFire(r1, g_relay1, &g_relay1_fire_latched);
+            Relay_TryAutonomousFire(r1, g_relay1, &g_relay1_fire_latched, zone_match);
         }
         if (App_IsRelaySlotEnabled(1)) {
-            Relay_HandleAutonomousFire(r2, g_relay2, &g_relay2_fire_latched);
+            Relay_TryAutonomousFire(r2, g_relay2, &g_relay2_fire_latched, zone_match);
         }
     }
     /* StopExtinguishment / Pause: реле не возвращаем. */
+}
+
+extern "C" void RcvStartExtinguishment(uint32_t MsgID, uint8_t *MsgData, uint8_t is_mine)
+{
+    (void)is_mine;
+    if (MsgData == nullptr) {
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+    if (IsPpkuOnline(now) != 0u) {
+        return;
+    }
+
+    can_ext_id_t id;
+    id.ID = MsgID & 0x0FFFFFFFu;
+    uint8_t zone = (uint8_t)(id.field.zone & 0x7Fu);
+    if (zone == 0u) {
+        zone = MsgData[1] & 0x7Fu;
+    }
+
+    const uint8_t own_zone = (uint8_t)(g_cfg.UId.devId.zone & 0x7Fu);
+    const uint8_t zone_match = (zone == 0u || zone == own_zone) ? 1u : 0u;
+
+    DeviceRelayConfig *r1 = (DeviceRelayConfig*)g_cfg.Devices[0].reserv;
+    DeviceRelayConfig *r2 = (DeviceRelayConfig*)g_cfg.Devices[1].reserv;
+    if (App_IsRelaySlotEnabled(0)) {
+        Relay_TryAutonomousStart(r1, g_relay1, &g_relay1_fire_latched, zone_match);
+    }
+    if (App_IsRelaySlotEnabled(1)) {
+        Relay_TryAutonomousStart(r2, g_relay2, &g_relay2_fire_latched, zone_match);
+    }
 }
 
 void App_Init(void)
