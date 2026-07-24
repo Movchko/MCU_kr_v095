@@ -2,6 +2,7 @@
 
 extern "C" {
 #include "backend.h"
+#include "tick_time.h"
 }
 
 #include "device_config.h"
@@ -125,7 +126,7 @@ static void VDeviceSetStatus(uint8_t DNum, uint8_t Code, const uint8_t *Paramete
 
 static uint8_t IsPpkuOnline(uint32_t now_ms)
 {
-    return ((now_ms - g_ppku_last_seen_ms) <= PPKU_ONLINE_TIMEOUT_MS) ? 1u : 0u;
+    return (TickAgeWithinMs(now_ms, g_ppku_last_seen_ms, PPKU_ONLINE_TIMEOUT_MS) != 0u) ? 1u : 0u;
 }
 
 static void Relay_ApplyTarget(VDeviceRelay &relay, uint8_t state)
