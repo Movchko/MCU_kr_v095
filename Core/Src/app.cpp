@@ -301,6 +301,7 @@ void MCU_KRCommandCB(uint8_t Command, uint8_t *Parameters)
     if (Command == 20) {
         g_cfg.UId.devId.zone = Parameters[0];
         SaveConfig();
+        AplyConfig();
     }
 }
 
@@ -401,6 +402,12 @@ extern "C" void RcvStartExtinguishment(uint32_t MsgID, uint8_t *MsgData, uint8_t
     }
 }
 
+static void App_SaveConfigAndApply(void)
+{
+    SaveConfig();
+    AplyConfig();
+}
+
 void App_Init(void)
 {
     if (!FlashReadConfig(&g_cfg)) {
@@ -413,14 +420,14 @@ void App_Init(void)
 
     g_relay1.DeviceInit(&g_cfg.Devices[0]);
     g_relay1.VDeviceSetStatus = VDeviceSetStatus;
-    g_relay1.VDeviceSaveCfg = SaveConfig;
+    g_relay1.VDeviceSaveCfg = App_SaveConfigAndApply;
     g_relay1.Relay_SetOutput = Relay1_SetOutput;
     g_relay1.Relay_GetFeedback = Relay1_GetFeedback;
     g_relay1.Init();
 
     g_relay2.DeviceInit(&g_cfg.Devices[1]);
     g_relay2.VDeviceSetStatus = VDeviceSetStatus;
-    g_relay2.VDeviceSaveCfg = SaveConfig;
+    g_relay2.VDeviceSaveCfg = App_SaveConfigAndApply;
     g_relay2.Relay_SetOutput = Relay2_SetOutput;
     g_relay2.Relay_GetFeedback = Relay2_GetFeedback;
     g_relay2.Init();
